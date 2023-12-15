@@ -1,0 +1,120 @@
+---
+title: "Data Mining Final"
+author: "Emerson Oliver-Miller and Sam Schachtman"
+output: html_document
+date: "2023-12-13"
+---
+
+```{r setup, include=FALSE}
+#Loading in packages and clearing log
+#rm(list = ls())
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(rpart)
+```
+
+## Final Project - Spotify Genre Classification
+
+  This project works with a dataset of a wide range of genres across many musical features such as loudness, energy, and tempo. We aim to train and test a machine with genre as the target variable, to possibly classify tracks into their respective genres based off of their other features. The model could be used for creating custom playlists for specific genres or organizing large music libraries. 
+
+First, let's load in our data and take a look.
+```{r}
+#Reading in csv file. Choosing to remove the track_id column and rename the first column to 'song_id'. Also make the categorical variables explicit and genre a factor
+spotify = read_csv("spotify.data.csv") %>%
+ select(-track_id) %>%
+  rename(song_id = 'Unnamed: 0') %>%
+  mutate(explicit = factor(explicit)) %>%
+  mutate(track_genre = factor(track_genre))
+```
+Let's take a look at the structure some of the summary statistics for this dataset. 
+```{r}
+str(spotify)
+summary(spotify)
+```
+Before moving forward, we want to deal with any missing values we might have. 
+```{r}
+#Let's check for missing values
+missing_values <- colSums(is.na(spotify))
+
+# Display columns with missing values and their counts
+missing_values[missing_values > 0]
+
+```
+```{r}
+#We found a few missing values. The best course of action for these will be deletion (of the rows) given that they're not numerical features and some other computation on them is not viable
+spotify <- spotify[complete.cases(spotify[c("artists", "album_name", "track_name")]), ]
+```
+
+
+Now that our data is ready, we can begin to organize our model by splitting our data ito training and testing sets. 
+```{r}
+#Let's split the data into our training and test sets. 
+set.seed(123)  # for reproducibility
+train_indices <- sample(1:nrow(spotify), 0.8 * nrow(spotify))
+train_data <- spotify[train_indices, ]
+test_data <- spotify[-train_indices, ]
+```
+
+What features should we target as predictor variables? We can find some correlations to get a first idea on what variables are most important. 
+```{r}
+#We want to choose a few features to use in our model. Let's look at a correlation matrix at some of our possibilities so we can ignore including some that may be redundent. 
+selected_features <- c("danceability", "energy", "tempo", "valence", "loudness")
+spotify_subset <- spotify[selected_features]
+correlation_matrix <- cor(spotify_subset)
+ggplot(data = reshape2::melt(correlation_matrix), aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+
+
+
+```
+  This heat map visualizes the correlations between the mentioned features. Dark blue colors indicate a strong negative correlation. Dark Red colors indicate a strong positive correlation. White indicates not much correlation at all. 
+  We see only red colored squares, meaning that correlations tended to be positive. The highest correlation of note is between loudness and energy. This makes sense because a high energy song would tend to be louder. 
+  The valence feature measures the music's overall positivity, ranging from 0 to 1. High valence means more positive/happy tracks and lower valence means more negative/sad songs. We observed a somewhat significant correlation between valence and danceability. This logic remains consistent with our interpretation. I would imagine that the more happier a song becomes, the more willing a listener is to dance. Sad and negative songs are not typically associated with dancing, while happy ones are. 
+
+
+Now, let's build our decision tree ad model
+```{r}
+# This code will create a decision tree model for our data. Based on the previous correlation matrix, we are choosing to include all of the selected features besides loudness.
+
+model <- rpart(track_genre ~ danceability + energy + tempo + valence, data = train_data)
+
+```
+
+```{r}
+#Now we can use our model to make predictions on the test set 
+predictions <- predict(model, test_data, type = "class")
+```
+
+At this stage we can evaluate the model's performance. Let's look at the accuracy, precision, and F1 score, common metrics for classification. 
+```{r}
+
+confusion_matrix <- table(predictions, test_data$track_genre)
+print(confusion_matrix)
+
+# Calculating metrics
+accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+precision <- diag(confusion_matrix) / rowSums(confusion_matrix)
+recall <- diag(confusion_matrix) / colSums(confusion_matrix)
+f1_score <- 2 * (precision * recall) / (precision + recall)
+
+#Display metrics
+cat("Accuracy:", accuracy, "\n")
+cat("Precision:", precision, "\n")
+cat("Recall:", recall, "\n")
+cat("F1 Score:", f1_score, "\n")
+```
+
+From here, our model can be improved through more rounds of testing and further research into which features stand out. This way it will be useful to genre classification. 
+
+
+
+
+Data Source:
+Our data was found on a Kaggle page titled, Spotify Tracks Genre
+Link: https://www.kaggle.com/datasets/thedevastator/spotify-tracks-genre-dataset/
